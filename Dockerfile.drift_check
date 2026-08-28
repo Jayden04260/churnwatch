@@ -1,0 +1,22 @@
+# Container image for drift_check.py - the scheduled drift-detection job
+# (see terraform/main.tf's EventBridge rule). Deliberately a *different*
+# base image and pattern from ../Dockerfile: that one serves live HTTP
+# traffic via the AWS Lambda Web Adapter, which is the right tool for "run
+# an existing web server unmodified on Lambda". This is a plain scheduled
+# batch job invoked handler-style, so AWS's own Lambda Python base image
+# (which already includes the Runtime Interface Client) is the simpler,
+# more standard fit - no adapter, no extra bootstrapping needed.
+
+FROM public.ecr.aws/lambda/python:3.11
+
+# numpy/pandas versions are pinned in requirements-drift.txt specifically
+# so this stays a prebuilt-wheel install - no compiler needed. See that
+# file's comment for why (this base image is still Amazon Linux 2, glibc
+# 2.26; current numpy/pandas releases require glibc 2.28+ wheels and would
+# otherwise fall back to a source build AL2's own gcc is too old for).
+COPY requirements-drift.txt .
+RUN pip install --no-cache-dir -r requirements-drift.txt
+
+COPY drift_check.py drift.py features.py ${LAMBDA_TASK_ROOT}/
+
+CMD ["drift_check.lambda_handler"]

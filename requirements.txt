@@ -1,0 +1,18 @@
+# Full dev/training environment - everything in requirements-deploy.txt
+# plus what's needed to build the dataset, train models, and run tests.
+# See requirements-deploy.txt for the minimal set actually baked into the
+# deployed Docker image.
+fastapi
+uvicorn
+scikit-learn
+pandas
+numpy
+joblib
+openpyxl
+pyarrow
+pytest
+httpx
+boto3
+moto
+requests
+streamlit

@@ -1,0 +1,14 @@
+# Deps for the drift_check Lambda specifically - a scheduled batch job,
+# not the web-serving API, so it uses AWS's own Lambda Python base image
+# (native Runtime Interface Client) rather than the Web Adapter pattern in
+# ../Dockerfile - see Dockerfile.drift_check.
+#
+# numpy/pandas pinned below manylinux_2_28: AWS's Lambda Python base image
+# is still Amazon Linux 2 (glibc 2.26), but current numpy/pandas releases
+# only publish wheels requiring glibc 2.28+, forcing pip to build from
+# source - which then fails anyway, because AL2's own gcc (7.3.1) is too
+# old for numpy's build requirements (>= 9.3). Pinning to versions that
+# still ship manylinux2014 wheels (glibc 2.17+) sidesteps both problems.
+boto3
+numpy==1.26.4
+pandas==2.1.4

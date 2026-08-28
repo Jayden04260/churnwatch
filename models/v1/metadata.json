@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "trained_at": "2026-08-28T15:36:51.862646+00:00",
+  "feature_columns": [
+    "recency_days",
+    "frequency",
+    "monetary"
+  ],
+  "metrics": {
+    "accuracy": 0.687767886580943,
+    "f1": 0.674234606123151,
+    "roc_auc": 0.758521437006086,
+    "test_rows": 3033
+  }
+}

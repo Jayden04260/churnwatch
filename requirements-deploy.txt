@@ -1,0 +1,12 @@
+# Minimal dependency set for deploying api/main.py - deliberately not the
+# full requirements.txt (which also pulls in pytest/httpx for testing that
+# the deployed image never needs). No torch here at all, unlike emotisense -
+# this is a small scikit-learn model, so there's no Hugging-Face-Hub-style
+# cold-start download and no OOM risk from a large model on Render/Lambda's
+# free-tier memory limits.
+fastapi
+uvicorn
+scikit-learn
+pandas
+numpy
+joblib

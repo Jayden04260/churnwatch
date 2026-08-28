@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Raw source data - 44MB, freely re-downloadable (see build_dataset.py's
+# ensure_raw_data()), not worth bloating the repo with.
+data/online_retail_II.xlsx
+data/online_retail_ii.zip
+
+# Derived parquet datasets and the trained model ARE committed - small
+# (under 1MB combined) and mean CI/a fresh clone can run tests and the API
+# without needing to rebuild the dataset or retrain from scratch.
+
+terraform/.terraform/
+terraform/*.tfstate*

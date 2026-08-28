@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+data
+tests
+.pytest_cache
+__pycache__
+*.pyc
+*.xlsx
+*.zip
+.terraform
+terraform/.terraform
+terraform/*.tfstate*
+README.md

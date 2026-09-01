@@ -102,6 +102,22 @@ data "aws_iam_policy_document" "deploy" {
       "s3:GetObject",
       "s3:PutObject",
       "s3:DeleteObject",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketAcl",
+      # The aws_s3_bucket resource's refresh reads all of these sub-configs
+      # on every plan/apply, whether or not they're actually set - all
+      # read-only, all scoped to just this one bucket below.
+      "s3:GetBucketCors",
+      "s3:GetBucketVersioning",
+      "s3:GetBucketLogging",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetBucketTagging",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketRequestPayment",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:GetAccelerateConfiguration",
     ]
     resources = [
       aws_s3_bucket.data.arn,
@@ -164,6 +180,7 @@ data "aws_iam_policy_document" "deploy" {
       "events:RemoveTargets",
       "events:DeleteRule",
       "events:ListTargetsByRule",
+      "events:ListTagsForResource",
     ]
     resources = [aws_cloudwatch_event_rule.drift_check_schedule.arn]
   }
@@ -180,8 +197,13 @@ data "aws_iam_policy_document" "deploy" {
       "sns:Unsubscribe",
       "sns:ListSubscriptionsByTopic",
       "sns:TagResource",
+      "sns:ListTagsForResource",
+      "sns:GetSubscriptionAttributes",
     ]
-    resources = [aws_sns_topic.drift_alerts.arn]
+    resources = [
+      aws_sns_topic.drift_alerts.arn,
+      "${aws_sns_topic.drift_alerts.arn}:*",
+    ]
   }
 }
 

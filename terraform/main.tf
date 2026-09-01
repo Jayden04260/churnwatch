@@ -119,8 +119,12 @@ resource "aws_lambda_permission" "url_invoke_function_url" {
 resource "terraform_data" "url_invoke_function_permission" {
   triggers_replace = [aws_lambda_function.api.function_name, var.aws_region]
 
+  # No quotes around * - cmd.exe (Windows local-exec's shell) doesn't glob-expand
+  # it like POSIX shells do, and quoting it here gets the literal quote
+  # characters passed through to the AWS CLI as part of the value, which
+  # AddPermission then rejects as an invalid principal.
   provisioner "local-exec" {
-    command = "aws lambda add-permission --function-name ${self.triggers_replace[0]} --statement-id UrlPolicyInvokeFunction --action lambda:InvokeFunction --principal \"*\" --invoked-via-function-url --region ${self.triggers_replace[1]} || exit 0"
+    command = "aws lambda add-permission --function-name ${self.triggers_replace[0]} --statement-id UrlPolicyInvokeFunction --action lambda:InvokeFunction --principal * --invoked-via-function-url --region ${self.triggers_replace[1]} || exit 0"
   }
 
   provisioner "local-exec" {

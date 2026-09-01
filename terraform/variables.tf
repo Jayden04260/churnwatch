@@ -29,14 +29,15 @@ variable "drift_check_image_uri" {
 
 variable "drift_check_schedule" {
   description = <<-EOT
-    EventBridge schedule expression for the drift-check job. Every 10
-    minutes for demo purposes (so drift is actually observable within a
-    reasonable demo/interview timeframe) - a real production deployment
-    would run this far less often (hourly or daily), since drift doesn't
-    meaningfully change minute-to-minute.
+    EventBridge schedule expression for the drift-check job. Started at
+    every 10 minutes for demo purposes (so drift was actually observable
+    within a reasonable demo/interview timeframe) - now that it's proven
+    itself (a real alert email received 2026-09-01), dialed back to once a
+    day, matching a realistic production cadence for a model that doesn't
+    meaningfully drift minute-to-minute.
   EOT
   type        = string
-  default     = "rate(10 minutes)"
+  default     = "rate(1 day)"
 }
 
 variable "memory_size" {

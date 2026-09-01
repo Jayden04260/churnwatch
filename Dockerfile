@@ -14,9 +14,11 @@ COPY requirements-deploy.txt .
 RUN pip install --no-cache-dir -r requirements-deploy.txt
 
 # Only what api/main.py actually imports at runtime: itself, the trained
-# model + its metadata, and features.py (FEATURE_COLUMNS).
+# model + its metadata, features.py (FEATURE_COLUMNS), and prediction_log.py
+# (S3 logging).
 COPY api/ api/
 COPY features.py features.py
+COPY prediction_log.py prediction_log.py
 COPY models/ models/
 
 # Lambda Web Adapter - lets Lambda invoke a plain uvicorn HTTP server (no

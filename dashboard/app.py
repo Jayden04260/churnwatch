@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import boto3
 import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from registry import DECIDING_METRIC, MIN_IMPROVEMENT, is_better  # noqa: E402 - needs the sys.path fix above first, since this file runs from dashboard/, not the repo root
 
 st.set_page_config(page_title="churnwatch", layout="wide")
 
@@ -82,6 +86,15 @@ def load_model_history() -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("version") if rows else pd.DataFrame()
 
 
+@st.cache_data(ttl=60)
+def load_current_version() -> int | None:
+    try:
+        body = s3.get_object(Bucket=DATA_BUCKET, Key="models/current.json")["Body"].read()
+    except s3.exceptions.NoSuchKey:
+        return None
+    return json.loads(body)["version"]
+
+
 st.title("churnwatch")
 
 logs = load_prediction_logs()
@@ -109,4 +122,37 @@ st.header("Model version history")
 if models.empty:
     st.info("No model metadata found.")
 else:
-    st.dataframe(models, use_container_width=True)
+    # Every version under models/ was, at some point, actually promoted -
+    # retrain.py only ever calls save_version() when is_better() said yes
+    # (see registry.py); a rejected candidate is discarded and never
+    # written to S3 at all. So this table isn't just a metrics log, it's a
+    # record of the promotion gate's own decisions - "cleared_gate" below
+    # re-checks each one against its predecessor using the actual
+    # is_better() function retrain.py calls, not a re-derived
+    # approximation of its logic, so this genuinely proves the gate did
+    # what it claims rather than just asserting it in a docstring.
+    models = models.sort_values("version").reset_index(drop=True)
+    current_version = load_current_version()
+    models["is_live"] = models["version"] == current_version
+    models[f"{DECIDING_METRIC}_delta"] = models[DECIDING_METRIC].diff()
+
+    records = models.to_dict("records")
+    cleared_gate = [None]  # v1 has no predecessor to have cleared a bar against
+    for i in range(1, len(records)):
+        cleared_gate.append(
+            is_better({DECIDING_METRIC: records[i][DECIDING_METRIC]}, {DECIDING_METRIC: records[i - 1][DECIDING_METRIC]})
+        )
+    models["cleared_gate"] = cleared_gate
+
+    st.bar_chart(models.set_index("version")[DECIDING_METRIC])
+    st.caption(
+        f"Deciding metric: {DECIDING_METRIC} - a candidate must beat the current model by more than "
+        f"{MIN_IMPROVEMENT} to be promoted (see registry.py). ✅ under cleared_gate means that version's "
+        f"{DECIDING_METRIC} actually beat its predecessor by more than that margin when it was promoted."
+    )
+
+    display_columns = ["version", "trained_at", "is_live", DECIDING_METRIC, f"{DECIDING_METRIC}_delta", "cleared_gate", "accuracy", "f1", "test_rows"]
+    st.dataframe(
+        models[display_columns].style.format({f"{DECIDING_METRIC}_delta": "{:+.4f}"}, na_rep="-"),
+        use_container_width=True,
+    )

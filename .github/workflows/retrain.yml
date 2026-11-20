@@ -5,8 +5,19 @@ name: Retrain
 # automatically (see drift_check.py's EventBridge schedule), but retraining
 # and promotion are a deliberate human decision to kick off, not something
 # a drift alert triggers on its own.
+#
+# If retrain.py promotes a new version, this opens a pull request with it
+# rather than committing to main: the new model only ships once a human has
+# read the before/after metrics in the PR and merged it (and CI has passed
+# on the PR, which retrains nothing but does run the API tests against the
+# new model). Needs "Allow GitHub Actions to create and approve pull
+# requests" enabled under Settings -> Actions -> General.
 on:
   workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   retrain:
@@ -25,10 +36,34 @@ jobs:
           pip install -r requirements.txt
 
       - name: Retrain and evaluate
-        run: python retrain.py
+        id: retrain
+        shell: bash  # explicit, so pipefail is on and a crash in retrain.py isn't hidden by tee
+        run: python retrain.py | tee retrain_output.txt
 
-      # TODO once AWS deploy credentials exist for this project: if
-      # retrain.py promoted a new model version, redeploy the API Lambda
-      # (aws lambda update-function-code) so it actually picks up the new
-      # model - same step as the CI/CD workflow's own deploy job once that
-      # exists.
+      - name: Open a pull request with the promoted model
+        if: steps.retrain.outputs.promoted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.retrain.outputs.version }}
+        run: |
+          branch="retrain/v${VERSION}-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add models/
+          git commit -m "Promote churn model v${VERSION} (retrain run ${GITHUB_RUN_ID})"
+          git push origin "$branch"
+          {
+            echo "Automated retrain promoted **v${VERSION}**. Output from \`retrain.py\`:"
+            echo
+            echo '```'
+            cat retrain_output.txt
+            echo '```'
+            echo
+            echo "After merging, redeploy the API Lambda (aws lambda update-function-code) so it serves the new model."
+          } > pr_body.md
+          gh pr create --base "${{ github.event.repository.default_branch }}" --head "$branch" --title "Promote churn model v${VERSION}" --body-file pr_body.md
+
+      # TODO once AWS deploy credentials exist for this project: redeploy the
+      # API Lambda on merge of a retrain PR (aws lambda update-function-code)
+      # - same step as the CI/CD workflow's own deploy job once that exists.

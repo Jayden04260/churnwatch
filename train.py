@@ -2,8 +2,8 @@
 train.py
 
 Trains the churn classifier on data/train.parquet (see build_dataset.py),
-evaluates it on a held-out split, and writes a new model version to
-models/v{n}/:
+evaluates it on the fixed out-of-time holdout (see HOLDOUT_START), and
+writes a new model version to models/v{n}/:
 
   model.pkl           - the fitted scikit-learn pipeline
   metadata.json        - metrics, timestamp, feature list, training row count
@@ -27,29 +27,53 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, brier_score_loss, f1_score, roc_auc_score
 
 from drift import bucket_edges_to_proportions
-from features import FEATURE_COLUMNS
+from features import CHURN_WINDOW_DAYS, FEATURE_COLUMNS
 
 MODELS_DIR = Path("models")
 RANDOM_STATE = 42
 N_QUANTILE_BUCKETS = 10  # for the PSI baseline - see drift.py in Phase C
 
 
-def train_model(train_df: pd.DataFrame) -> tuple[GradientBoostingClassifier, dict, pd.DataFrame, pd.Series]:
-    X = train_df[FEATURE_COLUMNS]
-    y = train_df["churned"]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
-    )
+# Every model version is scored on the same fixed, out-of-time holdout: the
+# labelled snapshots from this date onward. Two reasons, both learned the
+# hard way (see README "Retraining v2"):
+#
+# 1. A random row split leaks. The same customer appears in every monthly
+#    snapshot, with near-identical features month to month, so a random
+#    split puts "the same customer, one month later" in the test set. A
+#    split by time can't do that.
+# 2. Metrics are only comparable on the same test set. The original
+#    retrain.py compared a candidate scored on a random 2011 split against
+#    v1's stored score from a random 2010 split - two different test sets,
+#    so the promotion decision wasn't measuring anything.
+HOLDOUT_START = pd.Timestamp("2011-06-01")
 
+
+def holdout_split(labeled: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Splits labelled snapshots into (trainable, holdout). Holdout is every
+    snapshot on/after HOLDOUT_START. Trainable is every snapshot whose
+    CHURN_WINDOW_DAYS label window has fully closed before HOLDOUT_START -
+    so no training label depends on anything that happened during the
+    holdout period. Snapshots in the gap between (label window still open
+    when the holdout starts) are dropped from both.
+    """
+    reference = labeled["reference_date"]
+    holdout = labeled[reference >= HOLDOUT_START]
+    label_closes = reference + pd.Timedelta(days=CHURN_WINDOW_DAYS)
+    trainable = labeled[label_closes < HOLDOUT_START]
+    return trainable, holdout
+
+
+def train_model(train_df: pd.DataFrame, test_df: pd.DataFrame) -> tuple[GradientBoostingClassifier, dict]:
     model = GradientBoostingClassifier(random_state=RANDOM_STATE)
-    model.fit(X_train, y_train)
-
-    metrics = evaluate(model, X_test, y_test)
-    return model, metrics, X_train, y_train
+    model.fit(train_df[FEATURE_COLUMNS], train_df["churned"])
+    metrics = evaluate(model, test_df[FEATURE_COLUMNS], test_df["churned"])
+    metrics["train_rows"] = len(train_df)
+    return model, metrics
 
 
 def evaluate(model: GradientBoostingClassifier, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
@@ -59,6 +83,10 @@ def evaluate(model: GradientBoostingClassifier, X_test: pd.DataFrame, y_test: pd
         "accuracy": accuracy_score(y_test, predictions),
         "f1": f1_score(y_test, predictions),
         "roc_auc": roc_auc_score(y_test, probabilities),
+        # Lower is better. The API returns a probability, not a label, so
+        # whether "0.7" really means ~70% matters - Brier tracks that
+        # (calibration + sharpness) where AUC only measures ranking.
+        "brier": brier_score_loss(y_test, probabilities),
         "test_rows": len(y_test),
     }
 
@@ -72,7 +100,7 @@ def compute_baseline_stats(X_train: pd.DataFrame, buckets: int = N_QUANTILE_BUCK
     against.
     """
     stats = {}
-    for column in FEATURE_COLUMNS:
+    for column in X_train.columns:
         quantiles = np.linspace(0, 1, buckets + 1)
         edges = X_train[column].quantile(quantiles).tolist()
         edges[0], edges[-1] = -np.inf, np.inf  # so any live value always falls in a bucket
@@ -123,10 +151,18 @@ def save_version(
     return version_dir
 
 
+def load_holdout() -> pd.DataFrame:
+    _, holdout = holdout_split(pd.read_parquet("data/live_2011_labeled.parquet"))
+    return holdout
+
+
 def main() -> None:
+    # v1 is trained on Year 1 only - the "deployed before the drift" model
+    # the rest of the project watches degrade. retrain.py builds later
+    # versions on everything labelled since.
     train_df = pd.read_parquet("data/train.parquet")
-    model, metrics, X_train, _ = train_model(train_df)
-    baseline_stats = compute_baseline_stats(X_train)
+    model, metrics = train_model(train_df, load_holdout())
+    baseline_stats = compute_baseline_stats(train_df[FEATURE_COLUMNS])
 
     version = next_version_number()
     version_dir = save_version(model, metrics, baseline_stats, version)

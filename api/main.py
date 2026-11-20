@@ -44,9 +44,14 @@ def _load_model() -> None:
 
 
 class PredictRequest(BaseModel):
+    # See features.py for exactly how each is computed from a customer's
+    # transaction history as of the scoring date.
     recency_days: float
     frequency: float
     monetary: float
+    mean_gap_days: float
+    unique_products_180d: float
+    avg_order_value_180d: float
 
 
 class PredictResponse(BaseModel):
@@ -62,7 +67,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="churnwatch API",
-    description="RFM-based customer churn classifier - see the churnwatch repo README.",
+    description="Customer churn classifier (RFM + purchase-rhythm features) - see the churnwatch repo README.",
     lifespan=lifespan,
 )
 

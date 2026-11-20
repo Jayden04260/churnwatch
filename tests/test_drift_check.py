@@ -45,6 +45,10 @@ def test_check_drift_handles_empty_predictions_without_crashing():
 
 @mock_aws
 def test_run_drift_check_end_to_end_writes_report_and_alerts_on_drift(monkeypatch):
+    # run_drift_check() creates its own clients with no explicit region (in
+    # Lambda, AWS_REGION is always set). Without this the test only passed on
+    # machines that happened to have a default region configured.
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-north-1")
     monkeypatch.setattr("drift_check.DATA_BUCKET", BUCKET)
 
     s3 = boto3.client("s3", region_name="eu-north-1")

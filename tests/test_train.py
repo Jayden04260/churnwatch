@@ -1,6 +1,21 @@
 import pandas as pd
 
-from train import N_QUANTILE_BUCKETS, compute_baseline_stats, next_version_number
+from train import HOLDOUT_START, N_QUANTILE_BUCKETS, compute_baseline_stats, holdout_split, next_version_number
+
+
+def test_holdout_split_never_trains_on_a_label_that_resolves_during_the_holdout():
+    dates = pd.date_range(HOLDOUT_START - pd.DateOffset(months=6), HOLDOUT_START + pd.DateOffset(months=2), freq="MS")
+    labeled = pd.DataFrame({"reference_date": dates, "churned": 0})
+
+    trainable, holdout = holdout_split(labeled)
+
+    assert (holdout["reference_date"] >= HOLDOUT_START).all()
+    assert len(holdout) == 3  # HOLDOUT_START and the two months after it
+    # Every training row's 90-day label window must close before the holdout begins.
+    assert (trainable["reference_date"] + pd.Timedelta(days=90) < HOLDOUT_START).all()
+    # Snapshots whose label window straddles the boundary are in neither set.
+    assert len(trainable) + len(holdout) < len(labeled)
+    assert set(trainable["reference_date"]).isdisjoint(holdout["reference_date"])
 
 
 def test_compute_baseline_stats_has_an_entry_per_feature_with_correct_bucket_count():

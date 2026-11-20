@@ -62,7 +62,7 @@ jobs:
             echo
             echo "After merging, redeploy the API Lambda (aws lambda update-function-code) so it serves the new model."
           } > pr_body.md
-          gh pr create --base main --head "$branch" --title "Promote churn model v${VERSION}" --body-file pr_body.md
+          gh pr create --base "${{ github.event.repository.default_branch }}" --head "$branch" --title "Promote churn model v${VERSION}" --body-file pr_body.md
 
       # TODO once AWS deploy credentials exist for this project: redeploy the
       # API Lambda on merge of a retrain PR (aws lambda update-function-code)

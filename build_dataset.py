@@ -31,7 +31,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from features import CHURN_WINDOW_DAYS, compute_rfm, label_churn
+from features import CHURN_WINDOW_DAYS, compute_features, label_churn
 
 RAW_URL = "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
 RAW_PATH = Path("data/online_retail_II.xlsx")
@@ -61,16 +61,20 @@ def ensure_raw_data() -> None:
 # Year 2 traffic begins in earnest (Dec 2010).
 TRAIN_REFERENCE_DATES = pd.date_range("2010-03-01", "2010-08-01", freq="MS")
 
-# Monthly reference dates through Year 2, deliberately spanning the real
-# Nov/Dec holiday season (both the 2010 and 2011 ones) - this is what
-# should show up as genuine drift against the Year 1 training baseline.
-LIVE_REFERENCE_DATES = pd.date_range("2010-12-01", "2011-09-01", freq="MS")
+# Monthly reference dates from the month after training ends through Year 2,
+# spanning the real Nov/Dec 2010 holiday season - this is what should show
+# up as genuine drift against the Year 1 training baseline. Starts
+# immediately after TRAIN_REFERENCE_DATES with no gap: an earlier version
+# started in Dec 2010, silently leaving Sep-Nov 2010 out of every dataset,
+# which cost retrain.py three months of labelled training data. Ends
+# 2011-09-01, the last month-start whose 90-day label window still fits
+# inside the dataset (which ends 2011-12-09).
+LIVE_REFERENCE_DATES = pd.date_range("2010-09-01", "2011-09-01", freq="MS")
 
 
 def load_transactions() -> pd.DataFrame:
-    xl = pd.ExcelFile(RAW_PATH)
-    sheets = [xl.parse(name) for name in xl.sheet_names]
-    transactions = pd.concat(sheets, ignore_index=True)
+    sheets = pd.read_excel(RAW_PATH, sheet_name=None)
+    transactions = pd.concat(sheets.values(), ignore_index=True)
 
     before = len(transactions)
     transactions = transactions.dropna(subset=["Customer ID"])
@@ -78,7 +82,7 @@ def load_transactions() -> pd.DataFrame:
 
     returns = (transactions["Quantity"] < 0).sum()
 
-    print(f"Loaded {before} raw rows from {len(xl.sheet_names)} sheet(s).")
+    print(f"Loaded {before} raw rows from {len(sheets)} sheet(s).")
     print(f"Dropped {dropped_no_customer} rows with no Customer ID (can't attribute to a customer).")
     print(f"{returns} rows are returns (negative quantity) - kept in the log, excluded from RFM purchase math.")
 
@@ -88,7 +92,7 @@ def load_transactions() -> pd.DataFrame:
 
 def build_snapshot(transactions: pd.DataFrame, reference_date: pd.Timestamp, with_labels: bool) -> pd.DataFrame:
     history = transactions[transactions["InvoiceDate"] <= reference_date]
-    snapshot = compute_rfm(history, reference_date)
+    snapshot = compute_features(history, reference_date)
     snapshot["reference_date"] = reference_date
 
     if with_labels:

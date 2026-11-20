@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "trained_at": "2026-11-20T02:29:50.627024+00:00",
+  "feature_columns": [
+    "recency_days",
+    "frequency",
+    "monetary",
+    "mean_gap_days",
+    "unique_products_180d",
+    "avg_order_value_180d"
+  ],
+  "metrics": {
+    "accuracy": 0.7477176793953078,
+    "f1": 0.8243695756167566,
+    "roc_auc": 0.8030678829553961,
+    "brier": 0.17045733622211787,
+    "test_rows": 20374,
+    "train_rows": 43561
+  }
+}

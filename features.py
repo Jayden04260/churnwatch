@@ -71,6 +71,53 @@ def compute_rfm(
     return combined[["recency_days", "frequency", "monetary"]].reset_index()
 
 
+def compute_features(
+    transactions: pd.DataFrame,
+    reference_date: pd.Timestamp,
+    lookback_days: int = RFM_LOOKBACK_DAYS,
+) -> pd.DataFrame:
+    """
+    RFM (see compute_rfm) plus three behavioural features. Same contract as
+    compute_rfm - transactions already restricted to on/before
+    reference_date - but also needs a "StockCode" column.
+
+    - mean_gap_days: average days between distinct purchase days, over the
+      customer's whole history (days from first purchase to reference date,
+      divided by number of distinct purchase days). A customer's own
+      purchase rhythm is what makes a given recency alarming or not: 60
+      days of silence means something very different for a weekly buyer
+      than for a twice-a-year one. By far the most predictive feature added
+      (see README "Retraining v2").
+    - unique_products_180d: distinct StockCodes bought in the trailing
+      window - breadth of engagement, not just spend.
+    - avg_order_value_180d: monetary / frequency over the trailing window
+      (0 if no orders in the window).
+
+    All three are rates or trailing-window counts, deliberately not
+    lifetime totals - a lifetime total only ever grows, so it would show up
+    as "drift" purely because time passed (see RFM_LOOKBACK_DAYS above).
+    A lifetime purchase-day count was tested and scored marginally higher,
+    and was left out for exactly that reason.
+    """
+    features = compute_rfm(transactions, reference_date, lookback_days).set_index("Customer ID")
+    purchases = transactions[transactions["Quantity"] > 0]
+
+    first_purchase = purchases.groupby("Customer ID")["InvoiceDate"].min()
+    tenure_days = (reference_date - first_purchase.reindex(features.index)).dt.days
+    purchase_days = (
+        purchases.assign(day=purchases["InvoiceDate"].dt.normalize()).groupby("Customer ID")["day"].nunique()
+    )
+    features["mean_gap_days"] = tenure_days / purchase_days.reindex(features.index).clip(lower=1)
+
+    window_start = reference_date - pd.Timedelta(days=lookback_days)
+    recent = purchases[purchases["InvoiceDate"] > window_start]
+    unique_products = recent.groupby("Customer ID")["StockCode"].nunique()
+    features["unique_products_180d"] = unique_products.reindex(features.index).fillna(0).astype(int)
+    features["avg_order_value_180d"] = features["monetary"] / features["frequency"].clip(lower=1)
+
+    return features[FEATURE_COLUMNS].reset_index()
+
+
 def label_churn(
     customers: pd.DataFrame,
     future_transactions: pd.DataFrame,
@@ -98,4 +145,5 @@ def label_churn(
     return customers
 
 
-FEATURE_COLUMNS = ["recency_days", "frequency", "monetary"]
+RFM_COLUMNS = ["recency_days", "frequency", "monetary"]
+FEATURE_COLUMNS = [*RFM_COLUMNS, "mean_gap_days", "unique_products_180d", "avg_order_value_180d"]

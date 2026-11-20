@@ -1,6 +1,6 @@
 import pandas as pd
 
-from features import compute_rfm, label_churn
+from features import FEATURE_COLUMNS, compute_features, compute_rfm, label_churn
 
 
 def _txn(customer_id, invoice, date, qty, price):
@@ -86,6 +86,46 @@ def test_compute_rfm_only_includes_customers_with_a_purchase_before_reference_da
     transactions = pd.DataFrame([_txn(1, "A1", "2024-01-01", 1, 10.0)])
     result = compute_rfm(transactions, reference_date=pd.Timestamp("2024-01-15"))
     assert set(result["Customer ID"]) == {1}
+
+
+def _txn_sku(customer_id, invoice, date, qty, price, sku):
+    return {**_txn(customer_id, invoice, date, qty, price), "StockCode": sku}
+
+
+def test_compute_features_mean_gap_unique_products_and_order_value():
+    transactions = pd.DataFrame(
+        [
+            # Customer 1: first purchase Jan 1, purchases on 3 distinct days
+            # (two invoices on Jan 11 count as one purchase day).
+            _txn_sku(1, "A1", "2024-01-01", 2, 10.0, "X"),
+            _txn_sku(1, "A2", "2024-01-11", 1, 10.0, "Y"),
+            _txn_sku(1, "A3", "2024-01-11 15:00", 1, 10.0, "Y"),
+            _txn_sku(1, "A4", "2024-01-21", 1, 20.0, "Z"),
+        ]
+    )
+    result = compute_features(transactions, reference_date=pd.Timestamp("2024-01-31")).set_index("Customer ID")
+
+    assert list(result.columns) == FEATURE_COLUMNS
+    assert result.loc[1, "mean_gap_days"] == 30 / 3  # 30 days of tenure over 3 purchase days
+    assert result.loc[1, "unique_products_180d"] == 3  # X, Y, Z
+    assert result.loc[1, "frequency"] == 4
+    assert result.loc[1, "avg_order_value_180d"] == 60.0 / 4
+
+
+def test_compute_features_ignores_returns_and_handles_customers_inactive_in_window():
+    transactions = pd.DataFrame(
+        [
+            _txn_sku(1, "OLD", "2023-01-01", 1, 50.0, "X"),
+            _txn_sku(1, "RET", "2024-01-10", -1, 50.0, "Q"),  # a return - not a product bought
+        ]
+    )
+    result = compute_features(
+        transactions, reference_date=pd.Timestamp("2024-01-15"), lookback_days=30
+    ).set_index("Customer ID")
+
+    assert result.loc[1, "unique_products_180d"] == 0
+    assert result.loc[1, "avg_order_value_180d"] == 0.0  # no orders in window -> 0, not a divide-by-zero
+    assert result.loc[1, "mean_gap_days"] == 379  # one purchase day, 379 days ago
 
 
 def test_label_churn_marks_no_future_purchase_as_churned():

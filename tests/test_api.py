@@ -10,6 +10,10 @@ from api.main import app
 
 BUCKET = "test-churnwatch-bucket"
 
+# Typical values for the non-RFM features, so each test only spells out the
+# fields it's actually about.
+FEATURES = {"mean_gap_days": 30.0, "unique_products_180d": 25, "avg_order_value_180d": 300.0}
+
 
 def test_health_returns_ok_and_model_version():
     with TestClient(app) as client:
@@ -23,7 +27,7 @@ def test_health_returns_ok_and_model_version():
 def test_predict_returns_a_probability_between_zero_and_one():
     with TestClient(app) as client:
         response = client.post(
-            "/predict", json={"recency_days": 30, "frequency": 5, "monetary": 500.0}
+            "/predict", json={**FEATURES, "recency_days": 30, "frequency": 5, "monetary": 500.0}
         )
         assert response.status_code == 200
         body = response.json()
@@ -39,10 +43,10 @@ def test_predict_a_long_absent_low_activity_customer_scores_higher_churn_risk():
     # churn than a customer who bought yesterday and buys often.
     with TestClient(app) as client:
         at_risk = client.post(
-            "/predict", json={"recency_days": 365, "frequency": 1, "monetary": 20.0}
+            "/predict", json={"recency_days": 365, "frequency": 0, "monetary": 0.0, "mean_gap_days": 200.0, "unique_products_180d": 0, "avg_order_value_180d": 0.0}
         ).json()
         engaged = client.post(
-            "/predict", json={"recency_days": 1, "frequency": 20, "monetary": 5000.0}
+            "/predict", json={"recency_days": 1, "frequency": 20, "monetary": 5000.0, "mean_gap_days": 7.0, "unique_products_180d": 120, "avg_order_value_180d": 250.0}
         ).json()
 
     assert at_risk["churn_probability"] > engaged["churn_probability"]
@@ -56,7 +60,7 @@ def test_predict_logs_to_s3_when_data_bucket_is_configured(monkeypatch):
 
     with TestClient(app) as client:
         response = client.post(
-            "/predict", json={"recency_days": 42, "frequency": 3, "monetary": 250.0}
+            "/predict", json={**FEATURES, "recency_days": 42, "frequency": 3, "monetary": 250.0}
         )
     assert response.status_code == 200
 
@@ -77,7 +81,7 @@ def test_predict_still_succeeds_if_logging_fails(monkeypatch):
 
     with TestClient(app) as client:
         response = client.post(
-            "/predict", json={"recency_days": 10, "frequency": 1, "monetary": 10.0}
+            "/predict", json={**FEATURES, "recency_days": 10, "frequency": 1, "monetary": 10.0}
         )
     assert response.status_code == 200
     assert 0.0 <= response.json()["churn_probability"] <= 1.0
